@@ -145,7 +145,7 @@ async function run() {
             }
         }).filter((inputquery) => inputquery !== null)
 
-        let esResponse = await objcheckResponse(inputquery).catch(e => {
+        let esResponse = await checkResponse(inputquery).catch(e => {
             console.log(`Failed@webserver`, e)
         })
         if (esResponse) console.log(`Finish for s3 file ${s3File}`)
