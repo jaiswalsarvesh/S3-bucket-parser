@@ -1,16 +1,12 @@
-const finalOutput = require('./index.js');
 const { Client } = require('@elastic/elasticsearch');
 // import { Client } from '@elastic/elasticsearch';
 const client = new Client({ node: 'http://172.26.115.197:9200' });
-// const fetch = require("node-fetch");
-const input_file = finalOutput;
-const bulk = [];
+require('array.prototype.flatmap').shim()
 
 class publishToElasticSearch {
-
-
-
-    makebulk(test_list, callback) {
+    async makebulk(test_list) {
+        /*
+        const bulk = []
         let idx = 0;
         for (const current in test_list) {
             bulk.push(
@@ -26,20 +22,19 @@ class publishToElasticSearch {
                     TestStatus: test_list[current].TestStatus,
                     executionTimeStamp: test_list[current].executionTimeStamp
                 }
-            );
+            )
         }
-        client.bulk({
-            index: 'adityas-index_name',
-            type: 'test_case',
-            body: bulk
-        }, function (err, resp, status) {
-            if (err) {
-                console.log(err);
-            } else {
-                callback(resp.items);
-            }
-        });
-    };
+        */
+        console.log(`Send To ES=> request body length:${test_list.length}`)
 
+        const operations = test_list.flatMap(doc => [{ index: { _index: 'adityas-index_name' } }, doc])
+        const bulkResponse = await client.bulk({ refresh: true, operations })
+
+        // return await client.bulk({
+        //     index: 'adityas-index_name',
+        //     type: 'test_case',
+        //     body: bulk
+        // })
+    }
 }
 module.exports = new publishToElasticSearch()
