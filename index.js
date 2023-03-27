@@ -12,45 +12,55 @@ const publishToElasticSearch = require("./es")
 
 // Create an asynchronous function to retrieve data from an S3 bucket
 async function run() {
-    async function makeRequest(inputquery) {
-        //console.log("Making request to URL....Hang on");
-        // An array to store the actual responses for each query.
-        let actualresponse = [];
-        let i = 0
-        // Iterate through each query.
-        // Promise.all()
-        for (const item of inputquery) {
-            // const { path, query, expected, timestamp } = inputquery[i];
-            const { path, query, expected, timestamp } = item
-            // Construct the full URL for the API call.
-            const url = `${baseurl}${path}`
-            console.log(`Query request on webserver:${url}, request No:${i++}`)
+    async function callWebserver(item, fileNo, c) {
+        // for (const item of inputquery) {
+        // const { path, query, expected, timestamp } = inputquery[i];
+        const { path, query, expected, timestamp } = item
+        // Construct the full URL for the API call.
+        const url = `${baseurl}${path}`
+        console.log(`Request to webserver fileNo:${fileNo}, request No:${c}, API:${url}`)
 
-            // Make the API call and wait for the response.
-            const response = await fetch(url, {
-                method: 'POST',
-                body: JSON.stringify(query),
-                headers: {
-                    'Accept': 'application/json',
-                    'Content-Type': 'application/json'
-                }
-            })
-
-            // Store the response as a JSON object.
-            const resp = await response.json()
-            console.log("Req query:", query, ", resp:", resp)
-            // Push the individual response for each query into the actual response array.
-            actualresponse.push(resp)
-        }
-        // Return the array of actual responses.
-        console.log("DONE a FILE")
-        return new Promise(resolve => resolve(actualresponse))
+        // Make the API call and wait for the response.
+        return await fetch(url, {
+            method: 'POST',
+            body: JSON.stringify(query),
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+            }
+        })
+            .then(response => response.json())
+            .then((jsondata) => {
+                console.log(`Response from webserver fileNo:${fileNo}, request No:${c}, resp:`, jsondata)
+                return new Promise(resolve => resolve(jsondata))
+            }).catch(e => new Promise((resolve, reject) => {
+                console.error(`Error response from webserver fileNo:${fileNo}, request No:${c}, error:${e}`)
+                reject(e)
+            }))
     }
 
-    async function checkResponse(inputquery) {
+    async function makeRequest(inputquery, fileNo) {
+        //console.log("Making request to URL....Hang on");
+        // An array to store the actual responses for each query.
+        let counter = 0
+        return new Promise((resolve, reject) => {
+            return Promise.allSettled(inputquery.map(async item => {
+                return await callWebserver(item, fileNo, counter++)
+            })).then(resp => {
+                console.log(`DONE fileNo:${fileNo}`)
+
+                resolve(resp)
+            }).catch(e => {
+                console.log(`FAILED fileNo:${fileNo}`)
+                reject(e)
+            })
+        })
+    }
+
+    async function checkResponse(inputquery, fileNumber) {
         let finalOutput = [];
         // Call the makeRequest function to get the actual responses for each query.
-        const responses = await makeRequest(inputquery)
+        const responses = await makeRequest(inputquery, fileNumber)
 
         // Iterate through each query and compare the actual response to the expected response.
         for (let i = 0; i < inputquery.length; i++) {
@@ -109,13 +119,13 @@ async function run() {
     })
 
     // Send the command to the S3 client and retrieve the list of objects in the folder
-    console.log(`Getting files from  trellix-realprotect-querylog-parsed`)
+    console.log(`Getting files from  bucket [trellix-realprotect-querylog-parsed]`)
     const listObjects = await client.send(listCommand)
     // Create an array to store the keys of each object in the folder
     // Iterate through each key in the array and retrieve the corresponding object
     const objectKeys = listObjects.Contents.map(object => object.Key)
     console.log("Total S3 files: ", objectKeys.length)
-    let fileNumber = 0
+    let fileNo = 0
 
     // for (let i = 0; i < 2; i++) {
     for (let s3File of objectKeys) {
@@ -124,11 +134,12 @@ async function run() {
             Bucket: "trellix-realprotect-querylog-parsed",
             Key: s3File
         })
-        console.log(`Begin Execute s3 dump file:${s3File}, seq:${fileNumber++}`)
+        fileNo++ //counter file sequence
+        console.log(`START process S3 dump's file:${s3File}, fileNo:${fileNo}`)
 
         // Send the command to the S3 client and retrieve the object's body
         const { Body } = await client.send(getCommand).catch(e => {
-            console.error(`Error while get stream for file:${s3File}, ${e}`)
+            console.error(`Failed while get stream for file:${s3File}, fileNo:${fileNo++}, err:${e}`)
             return
         })
         // Convert the body contents from a stream to a string and log the results
@@ -145,10 +156,10 @@ async function run() {
             }
         }).filter((inputquery) => inputquery !== null)
 
-        let esResponse = await checkResponse(inputquery).catch(e => {
+        let esResponse = await checkResponse(inputquery, fileNo).catch(e => {
             console.log(`Failed@webserver`, e)
         })
-        if (esResponse) console.log(`Finish for s3 file ${s3File}`)
+        if (esResponse) console.log(`----------Finish for s3 fileName:${s3File}, fileNo:${fileNo}--------\n\n`)
     }
 }
 

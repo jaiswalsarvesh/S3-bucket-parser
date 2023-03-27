@@ -5,8 +5,7 @@ require('array.prototype.flatmap').shim()
 
 class publishToElasticSearch {
     async makebulk(test_list) {
-        console.log(`Send To ES=> request body length:${test_list.length}`)
-
+        console.log(`Publishing webserver response to elastic search, Total length:${test_list.length}`)
         const operations = test_list.flatMap(doc => [{ index: { _index: 'adityas-index_name' } }, doc])
         return await client.bulk({ refresh: true, operations })
     }
