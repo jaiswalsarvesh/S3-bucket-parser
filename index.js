@@ -10,8 +10,22 @@ const fs = require('fs')
 
 const publishToElasticSearch = require("./es")
 
+
+
 // Create an asynchronous function to retrieve data from an S3 bucket
 async function run() {
+
+
+    function getclassfierName(response) {
+        if (!response || !response.C) return "Invalid Response"
+        if (response.C.includes("Real Protect-SS!")) return "CSSVM"
+        else if (response.C.includes("Real Protect-EC!")) return "ESVM"
+        else if (response.C.includes("heuristic")) return "Heuristic"
+        else if (response.C.includes("Real Protect-AA!")) return "BSVM"
+        else if (response.C.includes("Real Protect-SC!")) return "Third_Classifier"
+        else return "Others"
+    }
+
     async function callWebserver(item, fileNo, c) {
         // for (const item of inputquery) {
         // const { path, query, expected, timestamp } = inputquery[i];
@@ -20,6 +34,7 @@ async function run() {
         const url = `${baseurl}${path}`
         console.log(`Request to webserver fileNo:${fileNo}, request No:${c}, API:${url}`)
 
+        //  let response = [];
         // Make the API call and wait for the response.
         return await fetch(url, {
             method: 'POST',
@@ -31,13 +46,33 @@ async function run() {
         })
             .then(response => response.json())
             .then((jsondata) => {
-                console.log(`Response from webserver fileNo:${fileNo}, request No:${c}, resp:`, jsondata)
-                return new Promise(resolve => resolve(jsondata))
+                console.log(`Response from webserver fileNo:${fileNo}, request No:${c}, mcafeeResp:`, expected, `trellixResp:`, jsondata)
+                let sourceClassifier = getclassfierName(expected)
+                let destinationClassifier = getclassfierName(jsondata)
+                let output = {
+                    URL: baseurl,
+                    path,
+                    query,
+                    mcafeeResponse: expected,
+                    trellixResponse: jsondata,
+                    timestamp,
+                    classificationMcafee: sourceClassifier,
+                    classificationTrellix: destinationClassifier,
+                    isSameClassifier: (sourceClassifier === destinationClassifier) && (sourceClassifier != "Others") ? true : false,
+                    executionTimeStamp: new Date()
+                }
+                if (JSON.stringify(expected) == JSON.stringify(jsondata)) {
+                    output.testStatus = 'Pass'
+                }
+                else output.testStatus = 'Fail'
+
+                return new Promise(resolve => resolve(output))
             }).catch(e => new Promise((resolve, reject) => {
                 console.error(`Error response from webserver fileNo:${fileNo}, request No:${c}, error:${e}`)
                 reject(e)
             }))
     }
+
 
     async function makeRequest(inputquery, fileNo) {
         //console.log("Making request to URL....Hang on");
@@ -57,37 +92,15 @@ async function run() {
         })
     }
 
+
+
+
     async function checkResponse(inputquery, fileNumber) {
-        let finalOutput = [];
         // Call the makeRequest function to get the actual responses for each query.
-        const responses = await makeRequest(inputquery, fileNumber)
+        const finalOutput = await makeRequest(inputquery, fileNumber)
 
         // Iterate through each query and compare the actual response to the expected response.
-        for (let i = 0; i < inputquery.length; i++) {
-            if (JSON.stringify(responses[i]) !== JSON.stringify(inputquery[i].expected)) {
-                finalOutput.push({
-                    URL: baseurl,
-                    path: inputquery[i].path,
-                    query: inputquery[i].query,
-                    actual_output: responses[i],
-                    expected_output: inputquery[i].expected,
-                    timestamp: inputquery[i].timestamp,
-                    TestStatus: 'Fail',
-                    executionTimeStamp: new Date()
-                })
-            } else {
-                finalOutput.push({
-                    URL: baseurl,
-                    path: inputquery[i].path,
-                    query: inputquery[i].query,
-                    actual_output: responses[i],
-                    expected_output: inputquery[i].expected,
-                    timestamp: inputquery[i].timestamp,
-                    TestStatus: 'Pass',
-                    executionTimeStamp: new Date()
-                })
-            }
-        }
+
         return await publishToElasticSearch.makebulk(finalOutput)
     }
 
